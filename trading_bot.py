@@ -1,13 +1,13 @@
 """
 ====================================================================
   AUTOMATED TRADING BOT — India Ready
-  Supports: Zerodha (KiteConnect), Binance, or Paper Trading mode
+  Supports: Zerodha (KiteConnect), Binance, Alpaca (US Stocks), or Paper Trading mode
   Strategy: EMA Crossover + RSI Filter + ATR-based Stop Loss
   Author: Claude | Run 24/7 on any VPS/cloud server
 ====================================================================
 
 SETUP:
-  pip install kiteconnect ccxt pandas numpy schedule requests
+  pip install kiteconnect ccxt pandas numpy schedule requests alpaca-trade-api
 
 USAGE:
   1. Set your broker credentials as env vars (see Config below)
@@ -17,13 +17,19 @@ USAGE:
 ====================================================================
 """
 
-import os, sys, time, logging, schedule
-from dotenv import load_dotenv
-load_dotenv()
-import pandas as pd
-import numpy as np
+import os, sys, time, logging
 from datetime import datetime, timedelta
 from dataclasses import dataclass, field
+
+from dotenv import load_dotenv
+load_dotenv()
+
+import pandas as pd
+import numpy as np
+import schedule
+import ccxt
+from kiteconnect import KiteConnect
+from alpaca_trade_api import REST as AlpacaREST
 
 # ─── Logging ─────────────────────────────────────────────────────
 logging.basicConfig(
@@ -36,7 +42,7 @@ log = logging.getLogger(__name__)
 # ─── Config ──────────────────────────────────────────────────────
 @dataclass
 class Config:
-    BROKER: str = "paper"  # "zerodha" | "binance" | "paper"
+    BROKER: str = "paper"  # "zerodha" | "binance" | "alpaca" | "paper"
 
     # Zerodha KiteConnect
     ZERODHA_API_KEY: str    = os.getenv("ZERODHA_API_KEY", "your_api_key")
@@ -47,7 +53,12 @@ class Config:
     BINANCE_API_KEY: str = os.getenv("BINANCE_API_KEY", "your_binance_api_key")
     BINANCE_SECRET: str  = os.getenv("BINANCE_SECRET",  "your_binance_secret")
 
-    # Instruments: Zerodha -> "NSE:RELIANCE" | Binance -> "BTC/USDT"
+    # Alpaca (US Stocks)
+    ALPACA_API_KEY: str    = os.getenv("ALPACA_API_KEY", "")
+    ALPACA_SECRET_KEY: str = os.getenv("ALPACA_SECRET_KEY", "")
+    ALPACA_BASE_URL: str   = os.getenv("ALPACA_BASE_URL", "https://paper-api.alpaca.markets")
+
+    # Instruments: Zerodha -> "NSE:RELIANCE" | Binance -> "BTC/USDT" | Alpaca -> "AAPL"
     SYMBOLS: list = field(default_factory=lambda: ["NSE:RELIANCE", "NSE:TCS", "NSE:INFY", "NSE:HDFCBANK", "NSE:SBIN"])
 
     # Strategy
@@ -172,7 +183,6 @@ class DataFetcher:
     def fetch_ohlcv(self, symbol):
         try:
             if self.cfg.BROKER == "binance":
-                import ccxt
                 ex = ccxt.binance({"apiKey": self.cfg.BINANCE_API_KEY,
                                    "secret": self.cfg.BINANCE_SECRET,
                                    "enableRateLimit": True})
@@ -181,7 +191,6 @@ class DataFetcher:
                 df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms")
 
             elif self.cfg.BROKER == "zerodha":
-                from kiteconnect import KiteConnect
                 kite = KiteConnect(api_key=self.cfg.ZERODHA_API_KEY)
                 kite.set_access_token(self.cfg.ZERODHA_ACCESS_TOKEN)
                 imap = {"1m":"minute","5m":"5minute","15m":"15minute",
@@ -194,6 +203,21 @@ class DataFetcher:
                                             interval=imap.get(self.cfg.TIMEFRAME,"60minute"))
                 df = pd.DataFrame(data).rename(columns={"date":"timestamp"})
 
+            elif self.cfg.BROKER == "alpaca":
+                api = AlpacaREST(self.cfg.ALPACA_API_KEY, self.cfg.ALPACA_SECRET_KEY,
+                                 self.cfg.ALPACA_BASE_URL)
+                tf_map = {"1m":"1Min","5m":"5Min","15m":"15Min",
+                          "30m":"30Min","1h":"1Hour","1d":"1Day"}
+                bars = api.get_bars(symbol, tf_map.get(self.cfg.TIMEFRAME, "1Hour"),
+                                    limit=self.cfg.CANDLE_LIMIT).df
+                bars = bars.reset_index()
+                df = pd.DataFrame({
+                    "timestamp": bars["timestamp"],
+                    "open": bars["open"], "high": bars["high"],
+                    "low": bars["low"], "close": bars["close"],
+                    "volume": bars["volume"]
+                })
+
             else:
                 df = self._synthetic(symbol)
 
@@ -204,14 +228,16 @@ class DataFetcher:
     def get_price(self, symbol):
         try:
             if self.cfg.BROKER == "binance":
-                import ccxt
                 ex = ccxt.binance({"enableRateLimit": True})
                 return float(ex.fetch_ticker(symbol)["last"])
             elif self.cfg.BROKER == "zerodha":
-                from kiteconnect import KiteConnect
                 kite = KiteConnect(api_key=self.cfg.ZERODHA_API_KEY)
                 kite.set_access_token(self.cfg.ZERODHA_ACCESS_TOKEN)
                 return float(kite.quote([symbol])[symbol]["last_price"])
+            elif self.cfg.BROKER == "alpaca":
+                api = AlpacaREST(self.cfg.ALPACA_API_KEY, self.cfg.ALPACA_SECRET_KEY,
+                                 self.cfg.ALPACA_BASE_URL)
+                return float(api.get_latest_trade(symbol).price)
             else:
                 return float(self._synthetic(symbol)["close"].iloc[-1])
         except Exception as e:
