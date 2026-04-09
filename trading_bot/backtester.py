@@ -226,6 +226,167 @@ class Backtester:
         self._print_metrics("PORTFOLIO", trades, equity_curve, cfg)
         return trades
 
+    def run_pairs(self, symbols, start="2025-04-09", end="2026-04-09"):
+        """
+        Pairs trading backtest.
+        1. Load all stock data
+        2. Find cointegrated pairs
+        3. For each timestamp, compute spread z-score
+        4. Open/close pair positions based on z-score thresholds
+        """
+        from trading_bot.strategies.pairs_trading import PairsTradingStrategy
+
+        cfg = self.cfg
+        fetcher = DataFetcher(cfg)
+        strat = PairsTradingStrategy(cfg)
+        capital = cfg.PAPER_CAPITAL
+        trades = []
+        equity_curve = [capital]
+
+        # Load all stock data
+        stock_data = {}
+        for symbol in symbols:
+            if cfg.BROKER in ("alpaca",):
+                raw_df = fetcher.fetch_ohlcv_range(symbol, start, end)
+            else:
+                raw_df = fetcher.fetch_ohlcv(symbol)
+            stock_data[symbol] = Indicators.compute(raw_df, cfg)
+
+        # Find cointegrated pairs
+        pairs = strat.find_cointegrated_pairs(stock_data)
+        if not pairs:
+            log.info("[PAIRS] No cointegrated pairs found.")
+            return trades
+
+        log.info(f"[PAIRS] Found {len(pairs)} cointegrated pair(s):")
+        for s1, s2, pval, hr in pairs:
+            log.info(f"  {s1}/{s2} | p-value: {pval:.4f} | hedge ratio: {hr:.4f}")
+
+        # Build unified timeline
+        all_timestamps = sorted(set().union(
+            *(df.index.tolist() for df in stock_data.values())
+        ))
+
+        # Track open pair positions
+        # pair_key -> {sym_a, sym_b, direction, qty_a, qty_b, hedge_ratio, entry_z, entry_spread}
+        open_pairs = {}
+
+        for ts in all_timestamps:
+            for sym_a, sym_b, _, hedge_ratio in pairs:
+                pair_key = f"{sym_a}/{sym_b}"
+                df_a = stock_data[sym_a]
+                df_b = stock_data[sym_b]
+
+                if ts not in df_a.index or ts not in df_b.index:
+                    continue
+
+                idx_a = df_a.index.get_loc(ts)
+                idx_b = df_b.index.get_loc(ts)
+
+                if idx_a < cfg.PAIRS_LOOKBACK or idx_b < cfg.PAIRS_LOOKBACK:
+                    continue
+
+                price_a = float(df_a.loc[ts, "close"])
+                price_b = float(df_b.loc[ts, "close"])
+
+                # Compute spread and z-score up to current timestamp
+                window_a = df_a["close"].iloc[:idx_a + 1]
+                window_b = df_b["close"].iloc[:idx_b + 1]
+                spread = strat.compute_spread(window_a, window_b, hedge_ratio)
+                zscore = strat.compute_zscore(spread, cfg.PAIRS_LOOKBACK)
+                current_z = float(zscore.iloc[-1]) if not np.isnan(zscore.iloc[-1]) else 0
+
+                # --- Check exits first ---
+                if pair_key in open_pairs:
+                    pos = open_pairs[pair_key]
+                    reason = None
+
+                    if strat.should_close_pair(current_z, pos["direction"], cfg):
+                        reason = "mean_reversion" if abs(current_z) <= cfg.PAIRS_EXIT_Z else "stop_loss"
+
+                    if reason:
+                        # Close both legs
+                        if pos["direction"] == +1:
+                            # Was short A, long B → buy back A, sell B
+                            pnl_a = (pos["entry_price_a"] - price_a * (1 + SLIPPAGE_PCT)) * pos["qty_a"]
+                            pnl_b = (price_b * (1 - SLIPPAGE_PCT) - pos["entry_price_b"]) * pos["qty_b"]
+                        else:
+                            # Was long A, short B → sell A, buy back B
+                            pnl_a = (price_a * (1 - SLIPPAGE_PCT) - pos["entry_price_a"]) * pos["qty_a"]
+                            pnl_b = (pos["entry_price_b"] - price_b * (1 + SLIPPAGE_PCT)) * pos["qty_b"]
+
+                        total_pnl = pnl_a + pnl_b
+                        capital += pos["locked_capital"] + total_pnl
+                        trades.append(dict(
+                            pnl=total_pnl, reason=reason,
+                            pair=pair_key, entry_z=pos["entry_z"], exit_z=current_z,
+                        ))
+                        del open_pairs[pair_key]
+
+                # --- Check entries ---
+                elif pair_key not in open_pairs and len(open_pairs) < cfg.MAX_OPEN_TRADES:
+                    direction = strat.should_open_pair(current_z, cfg)
+                    if direction != 0:
+                        qty_a, qty_b = strat.size_pair_position(
+                            capital, price_a, price_b, hedge_ratio, cfg
+                        )
+                        if qty_a <= 0:
+                            continue
+
+                        # Lock capital for the position
+                        locked = (price_a * qty_a + price_b * qty_b) * (1 + SLIPPAGE_PCT)
+                        if locked > capital * 0.95:
+                            locked = capital * 0.95
+                            notional_per_unit = price_a + abs(hedge_ratio) * price_b
+                            units = locked / (notional_per_unit * (1 + SLIPPAGE_PCT))
+                            qty_a = units
+                            qty_b = units * abs(hedge_ratio)
+
+                        capital -= locked
+
+                        entry_a = price_a * (1 + SLIPPAGE_PCT) if direction == -1 else price_a * (1 - SLIPPAGE_PCT)
+                        entry_b = price_b * (1 + SLIPPAGE_PCT) if direction == +1 else price_b * (1 - SLIPPAGE_PCT)
+
+                        open_pairs[pair_key] = dict(
+                            sym_a=sym_a, sym_b=sym_b,
+                            direction=direction,
+                            qty_a=qty_a, qty_b=qty_b,
+                            hedge_ratio=hedge_ratio,
+                            entry_z=current_z,
+                            entry_price_a=entry_a,
+                            entry_price_b=entry_b,
+                            locked_capital=locked,
+                        )
+                        log.info(
+                            f"[PAIRS] {'SHORT' if direction == +1 else 'LONG'} {sym_a} / "
+                            f"{'LONG' if direction == +1 else 'SHORT'} {sym_b} | "
+                            f"Z={current_z:+.2f} | {ts}"
+                        )
+
+            # Portfolio value
+            port_value = capital
+            for pos in open_pairs.values():
+                port_value += pos["locked_capital"]  # approximate
+            equity_curve.append(port_value)
+
+        # Close any remaining pairs
+        for pair_key, pos in list(open_pairs.items()):
+            price_a = float(stock_data[pos["sym_a"]]["close"].iloc[-1])
+            price_b = float(stock_data[pos["sym_b"]]["close"].iloc[-1])
+            if pos["direction"] == +1:
+                pnl_a = (pos["entry_price_a"] - price_a) * pos["qty_a"]
+                pnl_b = (price_b - pos["entry_price_b"]) * pos["qty_b"]
+            else:
+                pnl_a = (price_a - pos["entry_price_a"]) * pos["qty_a"]
+                pnl_b = (pos["entry_price_b"] - price_b) * pos["qty_b"]
+            total_pnl = pnl_a + pnl_b
+            capital += pos["locked_capital"] + total_pnl
+            trades.append(dict(pnl=total_pnl, reason="end_of_period", pair=pair_key))
+        open_pairs.clear()
+
+        self._print_metrics("PAIRS", trades, equity_curve, cfg)
+        return trades
+
     def _print_metrics(self, symbol, trades, equity_curve, cfg):
         if not trades:
             log.info(f"[BACKTEST] {symbol}: No trades generated.")

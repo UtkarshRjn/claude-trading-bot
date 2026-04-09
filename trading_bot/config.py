@@ -63,6 +63,13 @@ class Config:
     TRAILING_BREAKEVEN_ATR: float = 1.5
     TRAILING_ATR_MULTIPLIER: float = 1.5
 
+    # --- Pairs Trading ---
+    PAIRS_ENTRY_Z: float = 2.0       # open pair when |z| > 2.0
+    PAIRS_EXIT_Z: float = 0.5        # close pair when |z| < 0.5 (near mean)
+    PAIRS_STOP_Z: float = 4.0        # stop loss when |z| > 4.0 (blowout)
+    PAIRS_LOOKBACK: int = 60         # rolling window for z-score
+    PAIRS_COINT_LOOKBACK: int = 252  # lookback for cointegration test
+
     TIMEFRAME: str = "1h"
     CANDLE_LIMIT: int = 200
 

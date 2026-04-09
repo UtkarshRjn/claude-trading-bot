@@ -47,6 +47,14 @@ def main():
         log.info(f"{'='*50}")
         bt.run_portfolio(cfg.SYMBOLS)
 
+    elif len(sys.argv) > 1 and sys.argv[1] == "pairs":
+        bt = Backtester(cfg)
+        # Use more stocks for better pair discovery
+        symbols = cfg.SYMBOLS
+        if len(sys.argv) > 2:
+            symbols = sys.argv[2].split(",")
+        bt.run_pairs(symbols)
+
     elif len(sys.argv) > 1 and sys.argv[1] == "compare":
         for strat_name in ["ema_rsi", "multi_factor"]:
             log.info(f"\n{'='*50}")
@@ -56,6 +64,12 @@ def main():
             cfg_copy.STRATEGY = strat_name
             bt = Backtester(cfg_copy)
             bt.run_portfolio(cfg.SYMBOLS)
+        # Also run pairs
+        log.info(f"\n{'='*50}")
+        log.info("Strategy: pairs")
+        log.info(f"{'='*50}")
+        bt = Backtester(cfg)
+        bt.run_pairs(cfg.SYMBOLS)
 
     else:
         bot = TradingBot(cfg)

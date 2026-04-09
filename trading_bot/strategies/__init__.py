@@ -1,10 +1,12 @@
 from trading_bot.strategies.base import BaseStrategy
 from trading_bot.strategies.ema_rsi import EmaRsiStrategy
 from trading_bot.strategies.multi_factor import MultiFactorStrategy
+from trading_bot.strategies.pairs_trading import PairsTradingStrategy
 
 STRATEGIES = {
     "ema_rsi": EmaRsiStrategy,
     "multi_factor": MultiFactorStrategy,
+    "pairs": PairsTradingStrategy,
 }
 
 
