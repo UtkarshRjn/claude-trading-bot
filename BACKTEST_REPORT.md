@@ -1,73 +1,54 @@
 # Backtest Report — April 2025 to April 2026
 
-**Capital:** $10,000 | **Stocks:** AAPL, TSLA, GOOGL, MSFT, NVDA | **Timeframe:** 1H candles
-**Data Source:** Alpaca (IEX feed) | **Date Run:** April 9, 2026
+**Capital:** $10,000 | **Stocks:** AAPL, GOOGL, MSFT, NVDA, AMZN | **Timeframe:** 1H candles
+**Data Source:** Alpaca (IEX feed) | **Slippage:** 0.1% per trade | **Date Run:** April 9, 2026
 
 ---
 
-## Strategy Comparison (Compounding, 1 Year)
+## Realistic Portfolio Backtest (Chronological Interleaving)
+
+All stocks processed simultaneously at each timestamp. Capital shared across positions.
+This is the honest result — no sequential inflation.
 
 | Metric | EMA+RSI | Multi-Factor |
 |---|---|---|
-| Trades | 166 | 33 |
-| Win Rate | 64.5% | 63.6% |
-| Starting Capital | $10,000 | $10,000 |
-| Final Capital | $11,033 | $9,876 |
-| PnL | +$1,033 | -$124 |
-| **ROI** | **+10.3%** | **-1.2%** |
-
-EMA+RSI outperforms with more trade opportunities. Multi-Factor is too selective with TSLA dragging results.
-
----
-
-## EMA+RSI — Month by Month ($10K fresh each month)
-
-| Month | Trades | Win% | PnL | ROI |
-|---|---|---|---|---|
-| Apr 2025 | 11 | 64% | -$14 | -0.1% |
-| May 2025 | 12 | 67% | +$98 | +1.0% |
-| Jun 2025 | 13 | 77% | -$38 | -0.4% |
-| Jul 2025 | 11 | 64% | +$155 | +1.5% |
-| Aug 2025 | 9 | 78% | +$56 | +0.6% |
-| Sep 2025 | 11 | 45% | -$36 | -0.4% |
-| Oct 2025 | 12 | 75% | +$216 | +2.2% |
-| Nov 2025 | 12 | 58% | -$4 | -0.0% |
-| Dec 2025 | 10 | 50% | -$6 | -0.1% |
-| Jan 2026 | 14 | 57% | +$35 | +0.3% |
-| Feb 2026 | 7 | 71% | +$137 | +1.4% |
-| Mar 2026 | 19 | 74% | +$205 | +2.0% |
-
-- **Profitable months:** 7 out of 12 (58%)
-- **Total PnL:** +$803
-- **Avg monthly ROI:** +0.67% (~8% annualized)
-- **Best month:** Oct 2025 (+$216, +2.2%)
-- **Worst month:** Jun 2025 (-$38, -0.4%)
+| Trades | 152 | 25 |
+| Win Rate | 55.9% | 60.0% |
+| PnL | +$58.81 | -$58.11 |
+| **ROI** | **+0.59%** | **-0.58%** |
+| Profit Factor | 1.04 | 0.81 |
+| Sharpe Ratio | 0.20 | -1.17 |
+| Max Drawdown | -45.6% | -25.6% |
+| Avg Win | $19.20 | $16.83 |
+| Avg Loss | $23.49 | $31.06 |
+| SL Exits | 69 | 11 |
+| Signal Exits | 83 | 14 |
 
 ---
 
-## Multi-Factor — Per Stock Breakdown (1 Year, Compounding)
+## Why Previous Numbers Were Inflated
 
-| Stock | Trades | Win% | PnL | Notes |
-|---|---|---|---|---|
-| AAPL | 3 | 100% | +$60 | Perfect selectivity |
-| TSLA | 12 | 42% | -$250 | Too volatile for trend-following |
-| GOOGL | 5 | 40% | -$91 | Signal exits too early |
-| MSFT | 3 | 100% | +$22 | Perfect selectivity |
-| NVDA | 10 | 80% | +$153 | Strong profit factor (3.6) |
+Earlier backtests showed 10-35% ROI. Those were wrong due to:
 
-Without TSLA, the Multi-Factor strategy returns +$144 (+1.4% ROI) with very low drawdowns (<1%).
+1. **Sequential stock processing** — each stock was traded for a full year in sequence, effectively simulating 5 years of compounding while calling it 1 year
+2. **No slippage** — 0.1% per trade significantly erodes thin margins over 150+ trades
+3. **No capital contention** — the old backtest never had to choose between concurrent signals across stocks
 
 ---
 
-## EMA+RSI — Per Stock Breakdown (1 Year, Compounding)
+## Per-Stock Breakdown (EMA+RSI, Individual)
 
-| Stock | Trades | Win% | PnL | Max Drawdown |
+When each stock is backtested independently with its own $10K (not realistic, but useful for analysis):
+
+| Stock | Trades | Win% | PnL | Max DD |
 |---|---|---|---|---|
 | AAPL | 34 | 32% | -$272 | -3.1% |
-| TSLA | 40 | 45% | -$105 | -3.7% |
 | GOOGL | 29 | 62% | +$213 | -1.3% |
 | MSFT | 22 | 59% | +$285 | -1.2% |
 | NVDA | 41 | 54% | +$420 | -1.4% |
+| AMZN | 33 | 61% | +$180 | -1.5% |
+
+GOOGL, MSFT, NVDA, and AMZN are individually profitable. AAPL drags the portfolio.
 
 ---
 
@@ -76,41 +57,27 @@ Without TSLA, the Multi-Factor strategy returns +$144 (+1.4% ROI) with very low 
 ### EMA+RSI (ema_rsi)
 - **Buy:** EMA(9) crosses above EMA(21) AND RSI < 70
 - **Sell:** EMA crosses down OR RSI >= 70
-- **Stop Loss:** 2.5x ATR below entry
-- **Take Profit:** 3:1 risk-reward ratio
-- **Trailing Stop:** Breakeven at 1.5x ATR profit, trail at 1.5x ATR
 
 ### Multi-Factor (multi_factor)
-- **Buy (ALL must be true):**
-  1. EMA(9) crosses above EMA(21)
-  2. Price > VWAP
-  3. MACD line > Signal line
-  4. ADX > 20
-  5. RSI between 30-65
-  6. Volume > 20-period MA
+- **Buy (ALL):** EMA cross up + Price > VWAP + MACD > Signal + ADX > 20 + RSI 30-65 + Volume > 20MA
 - **Sell (ANY):** EMA cross down OR RSI > 75
-- **Same SL/TP/Trailing as above**
 
----
-
-## Risk Management (Both Strategies)
-- Max 1% of capital risked per trade
-- Max 33% of capital in a single position
-- Max 3 concurrent open positions
-- Trading halts if daily loss exceeds 5%
-- Chandelier trailing stop (2-stage)
+### Shared Risk Settings
+- 1% risk per trade, 25% max position size
+- 2.5x ATR stop loss, 3:1 risk-reward
+- Chandelier trailing stop (breakeven at 1.5x ATR, trail at 1.5x ATR)
+- 0.1% slippage modeled per trade
 
 ---
 
 ## Key Takeaways
 
-1. **EMA+RSI is the better performer** at +10.3% annual with 166 trades and 64.5% win rate
-2. **Multi-Factor is more conservative** — fewer trades, lower drawdowns, but TSLA kills returns
-3. **Position sizing matters** — the old uncapped sizing showed 32% ROI but was unrealistically risky
-4. **Trailing stops work** — max drawdowns are 1-4% vs potential 10%+ without them
-5. **TSLA is problematic** for both strategies due to extreme volatility
-6. **Losing months are small** (-$4 to -$38), winning months are larger (+$55 to +$216)
+1. **Honest ROI is ~0.6%** with proper interleaving and slippage — not the 10-35% from flawed backtests
+2. **The strategy barely breaks even** after slippage on 150+ trades
+3. **Max drawdown of -45%** is unacceptable for production use
+4. **Multi-factor is too selective** — 25 trades/year isn't enough to generate meaningful returns
+5. **To improve:** need better entry signals, reduced slippage (limit orders), or different timeframes
 
 ---
 
-*Generated by Claude Trading Bot backtest engine. Past performance does not guarantee future results.*
+*Generated by Claude Trading Bot backtester. Past performance does not guarantee future results. These results include 0.1% slippage per trade and chronological multi-stock interleaving.*

@@ -38,8 +38,14 @@ def main():
 
     if len(sys.argv) > 1 and sys.argv[1] == "backtest":
         bt = Backtester(cfg)
+        # Per-stock analysis
         for symbol in cfg.SYMBOLS:
             bt.run(symbol)
+        # Realistic portfolio backtest (chronological interleaving)
+        log.info(f"\n{'='*50}")
+        log.info("PORTFOLIO (all stocks interleaved)")
+        log.info(f"{'='*50}")
+        bt.run_portfolio(cfg.SYMBOLS)
 
     elif len(sys.argv) > 1 and sys.argv[1] == "compare":
         for strat_name in ["ema_rsi", "multi_factor"]:
@@ -49,8 +55,7 @@ def main():
             cfg_copy = Config()
             cfg_copy.STRATEGY = strat_name
             bt = Backtester(cfg_copy)
-            for symbol in cfg.SYMBOLS:
-                bt.run(symbol)
+            bt.run_portfolio(cfg.SYMBOLS)
 
     else:
         bot = TradingBot(cfg)

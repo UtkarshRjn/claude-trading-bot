@@ -55,9 +55,9 @@ class Config:
     RISK_PER_TRADE: float = 0.01
     ATR_STOP_MULTIPLIER: float = 2.5
     TAKE_PROFIT_RATIO: float = 3.0
-    MAX_OPEN_TRADES: int = 3
+    MAX_OPEN_TRADES: int = 2
     MAX_DAILY_LOSS: float = 0.05
-    MAX_POSITION_PCT: float = 0.33
+    MAX_POSITION_PCT: float = 0.25
 
     # --- Trailing Stop ---
     TRAILING_BREAKEVEN_ATR: float = 1.5
