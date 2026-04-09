@@ -42,7 +42,7 @@ log = logging.getLogger(__name__)
 # ─── Config ──────────────────────────────────────────────────────
 @dataclass
 class Config:
-    BROKER: str = "paper"  # "zerodha" | "binance" | "alpaca" | "paper"
+    BROKER: str = field(default_factory=lambda: os.getenv("BROKER", "paper"))  # "zerodha" | "binance" | "alpaca" | "paper"
 
     # Zerodha KiteConnect
     ZERODHA_API_KEY: str    = os.getenv("ZERODHA_API_KEY", "your_api_key")
@@ -59,7 +59,7 @@ class Config:
     ALPACA_BASE_URL: str   = os.getenv("ALPACA_BASE_URL", "https://paper-api.alpaca.markets")
 
     # Instruments: Zerodha -> "NSE:RELIANCE" | Binance -> "BTC/USDT" | Alpaca -> "AAPL"
-    SYMBOLS: list = field(default_factory=lambda: ["NSE:RELIANCE", "NSE:TCS", "NSE:INFY", "NSE:HDFCBANK", "NSE:SBIN"])
+    SYMBOLS: list = field(default_factory=lambda: ["AAPL", "TSLA", "GOOGL", "MSFT", "NVDA"])
 
     # Strategy
     EMA_FAST: int        = 9
